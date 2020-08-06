@@ -12,13 +12,22 @@ import android.view.MenuItem;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 
+import com.vehicletracking.fusion.orientationcomplimentaryfusion;
+
+import org.apache.commons.math3.complex.Quaternion;
+
 public class VehicleTrackingActivity extends AppCompatActivity implements SensorEventListener {
     private static final float NS2S = 1.0f / 1000000000.0f;
-    private final float EPSILON = 0.000000001f;
+    public final float EPSILON = 0.000000001f;
     private final String APPLICATION_LOG_TAG = "vehicle_tracking";
     private SensorManager mSensorManager;
     private float timestamp;
-    private boolean initState = true;
+    public boolean initState = true;
+
+    public com.vehicletracking.kalman.rotationkalmanfilter kalmanFilter;
+    public com.vehicletracking.kalman.rotationprocessmodel pm;
+    public com.vehicletracking.kalman.rotationmeasurementtool mm;
+    public orientationfusedkalman ofk;
     // angular speeds from gyro
     private float[] gyro = new float[3];
 
@@ -29,10 +38,13 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
     private float[] gyroOrientation = new float[3];
 
     // magnetic field vector
-    private float[] magnet = new float[3];
+    private float[] magnetic = new float[3];
 
     // accelerometer vector
     private float[] accel = new float[3];
+
+    private float[] gravity = new float[3];
+    private float[] linear_acceleration = new  float[3];
 
     // orientation angles from accel and magnet
     private float[] accMagOrientation = new float[3];
@@ -42,6 +54,9 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
 
     // accelerometer and magnetometer based rotation matrix
     private float[] rotationMatrix = new float[9];
+    public  float[] newAccMagValue = new float[3];
+    private long factor;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -80,6 +95,11 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
         mSensorManager.registerListener(this,
                 mSensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD),
                 SensorManager.SENSOR_DELAY_FASTEST);
+
+        mSensorManager.registerListener(this,
+                mSensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION),
+                SensorManager.SENSOR_DELAY_FASTEST);
+
     }
 
     @Override
@@ -118,14 +138,32 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
             case Sensor.TYPE_GYROSCOPE:
                 // process gyro data
                 Log.i(APPLICATION_LOG_TAG, "GYROSCOPE values x: " + event.values[0] + " y:" + event.values[1] + " z : " + event.values[2]);
-                gyroFunction(event);
+                gyrofunction(event);
                 break;
 
             case Sensor.TYPE_MAGNETIC_FIELD:
                 // copy new magnetometer data into magnet array
-                Log.i(APPLICATION_LOG_TAG, "MAGNETIC_FIELD called");
-                System.arraycopy(event.values, 0, magnet, 0, 3);
+                System.arraycopy(event.values, 0, magnetic, 0, 3);
+                Log.i(APPLICATION_LOG_TAG, "magnetic values x: " + magnetic[0] + " y:" + magnetic[1] + " z : " + magnetic[2]);
                 break;
+
+
+                case  Sensor.TYPE_LINEAR_ACCELERATION:
+
+                    final float alpha = (float) 0.8;
+                    // Isolate the force of gravity with the low-pass filter.
+                    gravity[0] = alpha * gravity[0] + (1 - alpha) * event.values[0];
+                    gravity[1] = alpha * gravity[1] + (1 - alpha) * event.values[1];
+                    gravity[2] = alpha * gravity[2] + (1 - alpha) * event.values[2];
+
+                    // Remove the gravity contribution with the high-pass filter.
+                    linear_acceleration[0] = event.values[0] - gravity[0];
+                    linear_acceleration[1] = event.values[1] - gravity[1];
+                    linear_acceleration[2] = event.values[2] - gravity[2];
+
+
+                    Log.i(APPLICATION_LOG_TAG, "linear acceleration value x:" + event.values[0] + "y:" + event.values[1] +"z:" + event.values[2] );
+                    break;
         }
     }
 
@@ -136,14 +174,13 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
 
     private void calculateAccMagOrientation() {
         Log.i(APPLICATION_LOG_TAG, "calculateAccMagOrientation");
-        if (SensorManager.getRotationMatrix(rotationMatrix, null, accel, magnet)) {
+        if (SensorManager.getRotationMatrix(rotationMatrix, null, accel, magnetic)) {
             SensorManager.getOrientation(rotationMatrix, accMagOrientation);
+
         }
     }
 
-    private void getRotationVectorFromGyro(float[] gyroValues,
-                                           float[] deltaRotationVector,
-                                           float timeFactor) {
+    private void getRotationVectorFromGyro(float[] gyroValues,float[] deltaRotationVector, float timeFactor) {
         float[] normValues = new float[3];
 
         // Calculate the angular speed of the sample
@@ -159,6 +196,8 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
             normValues[2] = gyroValues[2] / omegaMagnitude;
         }
 
+
+       // double[] deltaRotationVector = new double[4];
         // Integrate around this axis with the angular speed by the timestep
         // in order to get a delta rotation from this sample over the timestep
         // We will convert this axis-angle representation of the delta rotation
@@ -170,21 +209,25 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
         deltaRotationVector[1] = sinThetaOverTwo * normValues[1];
         deltaRotationVector[2] = sinThetaOverTwo * normValues[2];
         deltaRotationVector[3] = cosThetaOverTwo;
+
+       // return gyroOrientation. new Quaternion(deltaRotationVector[4],Arrays.copyOfRange(deltaRotationVector,0,3)));
+
+
     }
 
-    public void gyroFunction(SensorEvent event) {
+    public void gyrofunction(SensorEvent event) {
         // don't start until first accelerometer/magnetometer orientation has been acquired
         if (accMagOrientation == null)
             return;
 
         // initialisation of the gyroscope based rotation matrix
-        if (initState) {
+
             float[] initMatrix = getRotationMatrixFromOrientation(accMagOrientation);
             float[] test = new float[3];
             SensorManager.getOrientation(initMatrix, test);
             gyroMatrix = matrixMultiplication(gyroMatrix, initMatrix);
             initState = false;
-        }
+
 
         // copy the new gyro values into the gyro array
         // convert the raw gyro data into a rotation vector
@@ -192,7 +235,10 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
         if (timestamp != 0) {
             final float dT = (event.timestamp - timestamp) * NS2S;
             System.arraycopy(event.values, 0, gyro, 0, 3);
+            Log.i(APPLICATION_LOG_TAG, "getRotationVectorFromGyro x:" + event.values[0] + "y:" + event.values[1] +"z:" + event.values[2] );
             getRotationVectorFromGyro(gyro, deltaVector, dT / 2.0f);
+
+
         }
 
         // measurement done, save current time for next interval
@@ -207,6 +253,7 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
 
         // get the gyroscope based orientation from the rotation matrix
         SensorManager.getOrientation(gyroMatrix, gyroOrientation);
+     ;
     }
 
     private float[] getRotationMatrixFromOrientation(float[] o) {
@@ -254,7 +301,7 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
         zM[7] = 0.0f;
         zM[8] = 1.0f;
 
-        // rotation order is y, x, z (roll, pitch, azimuth)
+        //rotation order is y, x, z (roll, pitch, azimuth)
         float[] resultMatrix = matrixMultiplication(xM, yM);
         resultMatrix = matrixMultiplication(zM, resultMatrix);
         return resultMatrix;
@@ -278,9 +325,85 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
         return result;
     }
 
+    public static class orientationfusedkalman extends com.vehicletracking.fusion.orientationfused {
+
+        public static final String tag = orientationcomplimentaryfusion.class.getSimpleName();
+
+        public com.vehicletracking.kalman.rotationkalmanfilter kalmanFilter;
+        public com.vehicletracking.kalman.rotationprocessmodel pm;
+        public com.vehicletracking.kalman.rotationmeasurementtool mm;
+        public volatile boolean run;
+        public volatile float dt;
+        public volatile float[] fusedOrientation = new float[3];
+        public volatile float[] accel = new float[3];
+        public volatile float[] magnetic = new float[3];
+        public volatile float[] gyro = new float[4];
+        private Thread thread;
+
+        public orientationfusedkalman() {
+            this(DEFAULT_TIME_CONSTANT);
+        }
+
+        public orientationfusedkalman(float timeConstant) {
+            super(timeConstant);
+
+            pm = new com.vehicletracking.kalman.rotationprocessmodel();
+            mm = new com.vehicletracking.kalman.rotationmeasurementtool();
+
+            kalmanFilter = new com.vehicletracking.kalman.rotationkalmanfilter(pm, mm);
+
+
+        }
+
+
+        @Override
+        public void reset() {
+            super.reset();
+        }
+
+        @Override
+        public boolean isBaseOrientationSet() {
+            return super.isBaseOrientationSet();
+        }
+
+        @Override
+        public void setBaseOrientation(Quaternion baseOrientation) {
+            super.setBaseOrientation(baseOrientation);
+        }
+
+
+
+
+        /**
+         * Calculate the fused orientation of the device.
+         *
+         * @param gyro    the gyroscope measurements.
+         * @param timestamp    the gyroscope timestamp
+         * @param accel the acceleration measurements
+         * @param magnetic     the magnetic measurements
+         * @return the fused orientation estimation.
+         */
+        @Override
+        public float[] calculateFusedOrientation(float[] gyro, long timestamp, float[] accel, float[] magnetic) {
+            return new float[0];
+        }
+
+
+
+
+        @Override
+        public float[] filter(float[] values) {
+            return new float[0];
+        }
+    }
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
         mSensorManager.unregisterListener(this);
     }
-}
+
+
+
+
+    }
