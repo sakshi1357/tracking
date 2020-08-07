@@ -11,23 +11,16 @@ import android.view.MenuItem;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
-
-import com.vehicletracking.fusion.orientationcomplimentaryfusion;
-
-import org.apache.commons.math3.complex.Quaternion;
-
 public class VehicleTrackingActivity extends AppCompatActivity implements SensorEventListener {
     private static final float NS2S = 1.0f / 1000000000.0f;
+
     public final float EPSILON = 0.000000001f;
     private final String APPLICATION_LOG_TAG = "vehicle_tracking";
     private SensorManager mSensorManager;
     private float timestamp;
     public boolean initState = true;
 
-    public com.vehicletracking.kalman.rotationkalmanfilter kalmanFilter;
-    public com.vehicletracking.kalman.rotationprocessmodel pm;
-    public com.vehicletracking.kalman.rotationmeasurementtool mm;
-    public orientationfusedkalman ofk;
+
     // angular speeds from gyro
     private float[] gyro = new float[3];
 
@@ -133,6 +126,8 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
                 System.arraycopy(event.values, 0, accel, 0, 3);
                 Log.i(APPLICATION_LOG_TAG, "ACCELEROMETER values x: " + accel[0] + " y:" + accel[1] + " z : " + accel[2]);
                 calculateAccMagOrientation();
+
+
                 break;
 
             case Sensor.TYPE_GYROSCOPE:
@@ -210,8 +205,7 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
         deltaRotationVector[2] = sinThetaOverTwo * normValues[2];
         deltaRotationVector[3] = cosThetaOverTwo;
 
-       // return gyroOrientation. new Quaternion(deltaRotationVector[4],Arrays.copyOfRange(deltaRotationVector,0,3)));
-
+      // return gyroOrientation.finalize(new Quaternion(deltaRotationVector[4],  Arrays.copyOfRange(deltaRotationVector,0,3)));
 
     }
 
@@ -256,7 +250,7 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
      ;
     }
 
-    private float[] getRotationMatrixFromOrientation(float[] o) {
+    public float[] getRotationMatrixFromOrientation(float[] o) {
         float[] xM = new float[9];
         float[] yM = new float[9];
         float[] zM = new float[9];
@@ -307,7 +301,7 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
         return resultMatrix;
     }
 
-    private float[] matrixMultiplication(float[] A, float[] B) {
+    public float[] matrixMultiplication(float[] A, float[] B) {
         float[] result = new float[9];
 
         result[0] = A[0] * B[0] + A[1] * B[3] + A[2] * B[6];
@@ -323,78 +317,6 @@ public class VehicleTrackingActivity extends AppCompatActivity implements Sensor
         result[8] = A[6] * B[2] + A[7] * B[5] + A[8] * B[8];
 
         return result;
-    }
-
-    public static class orientationfusedkalman extends com.vehicletracking.fusion.orientationfused {
-
-        public static final String tag = orientationcomplimentaryfusion.class.getSimpleName();
-
-        public com.vehicletracking.kalman.rotationkalmanfilter kalmanFilter;
-        public com.vehicletracking.kalman.rotationprocessmodel pm;
-        public com.vehicletracking.kalman.rotationmeasurementtool mm;
-        public volatile boolean run;
-        public volatile float dt;
-        public volatile float[] fusedOrientation = new float[3];
-        public volatile float[] accel = new float[3];
-        public volatile float[] magnetic = new float[3];
-        public volatile float[] gyro = new float[4];
-        private Thread thread;
-
-        public orientationfusedkalman() {
-            this(DEFAULT_TIME_CONSTANT);
-        }
-
-        public orientationfusedkalman(float timeConstant) {
-            super(timeConstant);
-
-            pm = new com.vehicletracking.kalman.rotationprocessmodel();
-            mm = new com.vehicletracking.kalman.rotationmeasurementtool();
-
-            kalmanFilter = new com.vehicletracking.kalman.rotationkalmanfilter(pm, mm);
-
-
-        }
-
-
-        @Override
-        public void reset() {
-            super.reset();
-        }
-
-        @Override
-        public boolean isBaseOrientationSet() {
-            return super.isBaseOrientationSet();
-        }
-
-        @Override
-        public void setBaseOrientation(Quaternion baseOrientation) {
-            super.setBaseOrientation(baseOrientation);
-        }
-
-
-
-
-        /**
-         * Calculate the fused orientation of the device.
-         *
-         * @param gyro    the gyroscope measurements.
-         * @param timestamp    the gyroscope timestamp
-         * @param accel the acceleration measurements
-         * @param magnetic     the magnetic measurements
-         * @return the fused orientation estimation.
-         */
-        @Override
-        public float[] calculateFusedOrientation(float[] gyro, long timestamp, float[] accel, float[] magnetic) {
-            return new float[0];
-        }
-
-
-
-
-        @Override
-        public float[] filter(float[] values) {
-            return new float[0];
-        }
     }
 
     @Override
