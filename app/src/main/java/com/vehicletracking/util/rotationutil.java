@@ -49,7 +49,8 @@ public class rotationutil {
 
         // Since it is a unit quaternion, we can just multiply the old rotation
         // by the new rotation delta to integrate the rotation.
-        return previousRotationVector.multiply(new Quaternion(deltaVector[3], Arrays.copyOfRange(
+        return previousRotationVector.multiply(new Quaternion(deltaVector[3],
+                Arrays.copyOfRange(
                 deltaVector, 0, 3)));
     }
 
@@ -57,6 +58,11 @@ public class rotationutil {
      * Calculates orientation vector from accelerometer and magnetometer output.
      *
      * @param acceleration the acceleration measurement.
+     *
+     *
+     *
+     *
+     *
      * @param magnetic     the magnetic measurement.
      * @return
      */
