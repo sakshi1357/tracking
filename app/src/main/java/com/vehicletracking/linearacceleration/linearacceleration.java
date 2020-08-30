@@ -2,13 +2,16 @@ package com.vehicletracking.linearacceleration;
 
 import com.vehicletracking.Basefilter;
 
+import java.util.Arrays;
+
 public abstract class linearacceleration {
 
     private static final String tag = linearacceleration.class.getSimpleName();
 
-    private final float[] output = new float[]{0, 0, 0};
+    private float[] output = new float[]
+            {0, 0, 0};
 
-    protected final Basefilter filter;
+    protected Basefilter filter;
 
     public linearacceleration(Basefilter filter) {
         this.filter = filter;
@@ -16,7 +19,7 @@ public abstract class linearacceleration {
 
     public float[] filter(float[] values) {
 
-        float[] gravity = getGravity();
+        float[] gravity = getGravity(Arrays.copyOf(values, values.length));
 
         // Determine the linear acceleration
         output[0] = values[0] - gravity[0];
@@ -26,5 +29,14 @@ public abstract class linearacceleration {
         return output;
     }
 
-    public abstract float[] getGravity();
+    public void setTimeConstant(float timeConstant) {
+        filter.setTimeConstant(timeConstant);
+    }
+
+    public abstract float[] getGravity(float[] values);
+
+    public void reset() {
+        filter.reset();
+    }
 }
+

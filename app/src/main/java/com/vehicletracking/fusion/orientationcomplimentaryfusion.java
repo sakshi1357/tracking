@@ -1,9 +1,15 @@
 package com.vehicletracking.fusion;
 
+import android.annotation.TargetApi;
+import android.hardware.SensorManager;
+import android.os.Build;
+import android.util.Log;
+
 import com.vehicletracking.util.angleutil;
 import com.vehicletracking.util.rotationutil;
 
 import org.apache.commons.math3.complex.Quaternion;
+
 
 /*
  * Copyright 2017, Kircher Electronics, LLC
@@ -75,9 +81,9 @@ import org.apache.commons.math3.complex.Quaternion;
  * @author Kaleb
  *         http://developer.android.com/reference/android/hardware/SensorEvent.html#values
  */
- public class orientationcomplimentaryfusion extends orientationfused {
+public class orientationcomplimentaryfusion extends orientationfused {
 
-    public static final String TAG = orientationcomplimentaryfusion.class.getSimpleName();
+    private static final String tag = orientationcomplimentaryfusion.class.getSimpleName();
 
     /**
      * Initialize a singleton instance.
@@ -91,62 +97,74 @@ import org.apache.commons.math3.complex.Quaternion;
     }
 
     /**
-     * Calculate the fused orientation of the device.
-     *
-     * Rotation is positive in the counterclockwise direction (right-hand rule). That is, an observer looking from some positive location on the x, y, or z axis at
-     * a device positioned on the origin would report positive rotation if the device appeared to be rotating counter clockwise. Note that this is the
-     * standard mathematical definition of positive rotation and does not agree with the aerospace definition of roll.
-     *
-     * See: https://source.android.com/devices/sensors/sensor-types#rotation_vector
-     *
-     * Returns a vector of size 3 ordered as:
-     * [0]X points east and is tangential to the ground.
-     * [1]Y points north and is tangential to the ground.
-     * [2]Z points towards the sky and is perpendicular to the ground.
-     *
-     * @param gyro the gyroscope measurements.
-     * @param timestamp the gyroscope timestamp
-     * @return An orientation vector -> @link SensorManager#getOrientation(float[], float[])}
+     * Calculate the fused orientation.
      */
-    public float[] calculateFusedOrientation(float[] gyro, long timestamp, float[] accel, float[] magnetic) {
-        if (isBaseOrientationSet()) {
-            if (this.timestamp != 0) {
-                final float dT = (timestamp - this.timestamp) * NS2S;
+    @TargetApi(Build.VERSION_CODES.GINGERBREAD)
+    protected float[] calculateFusedOrientation(float[] gyroscope, float dt, float[] acceleration, float[] magnetic) {
 
-                float alpha = timeConstant / (timeConstant + dT);
-                float oneMinusAlpha = (1.0f - alpha);
+        float[] baseOrientation = getBaseOrientation(acceleration, magnetic);
 
-                Quaternion rotationVectorAccelerationMagnetic = rotationutil.getOrientationVectorFromAccelerationMagnetic(accel, magnetic);
+        if (baseOrientation != null) {
+            float alpha = timeConstant / (timeConstant + dt);
+            float oneMinusAlpha = (1.0f - alpha);
 
-                if(rotationVectorAccelerationMagnetic != null) {
+            Quaternion rotationVectorAccelerationMagnetic = getAccelerationMagneticRotationVector(baseOrientation);
+            initializeRotationVectorGyroscopeIfRequired(rotationVectorAccelerationMagnetic);
 
-                    rotationVector  = rotationutil.integrateGyroscopeRotation(rotationVector, gyro, dT, EPSILON);
+            rotationVectorGyroscope = getGyroscopeRotationVector(rotationVectorGyroscope, gyroscope, dt);
 
-                    // Apply the complementary fusedOrientation. // We multiply each rotation by their
-                    // coefficients (scalar matrices)...
-                    Quaternion scaledRotationVectorAccelerationMagnetic = rotationVectorAccelerationMagnetic.multiply(oneMinusAlpha);
+            // Apply the complementary filter. // We multiply each rotation by their
+            // coefficients (scalar matrices)...
+            Quaternion scaledRotationVectorAccelerationMagnetic = rotationVectorAccelerationMagnetic.multiply
+                    (oneMinusAlpha);
 
-                    // Scale our quaternion for the gyroscope
-                    Quaternion scaledRotationVectorGyroscope = rotationVector.multiply(alpha);
+            // Scale our quaternion for the gyroscope
+            Quaternion scaledRotationVectorGyroscope = rotationVectorGyroscope.multiply(alpha);
 
-                    //...and then add the two quaternions together.
-                    // output[0] = alpha * output[0] + (1 - alpha) * input[0];
-                    Quaternion result = scaledRotationVectorGyroscope.add(scaledRotationVectorAccelerationMagnetic);
+            // ...and then add the two quaternions together.
+            // output[0] = alpha * output[0] + (1 - alpha) * input[0];
+            rotationVectorGyroscope = scaledRotationVectorGyroscope.add
+                    (scaledRotationVectorAccelerationMagnetic);
 
-                    output = angleutil.getAngles(result.getQ0(), result.getQ1(), result.getQ2(), result.getQ3());
-                }
-            }
+            // Now we get a structure we can pass to get a rotation matrix, and then
+            // an orientation vector from Android.
 
-            this.timestamp = timestamp;
+            float[] fusedVector = new float[4];
 
-            return output;
-        } else {
-            throw new IllegalStateException("You must call setBaseOrientation() before calling calculateFusedOrientation()!");
+            fusedVector[0] = (float) rotationVectorGyroscope.getVectorPart()[0];
+            fusedVector[1] = (float) rotationVectorGyroscope.getVectorPart()[1];
+            fusedVector[2] = (float) rotationVectorGyroscope.getVectorPart()[2];
+            fusedVector[3] = (float) rotationVectorGyroscope.getScalarPart();
+
+            // rotation matrix from gyro data
+            float[] fusedMatrix = new float[9];
+
+            // We need a rotation matrix so we can get the orientation vector...
+            // Getting Euler
+            // angles from a quaternion is not trivial, so this is the easiest way,
+            // but perhaps
+            // not the fastest way of doing this.
+            SensorManager.getRotationMatrixFromVector(fusedMatrix, fusedVector);
+
+            float[] fusedOrientation = new float[3];
+
+            // Get the fused orienatation
+            SensorManager.getOrientation(fusedMatrix, fusedOrientation);
+
+            return fusedOrientation;
         }
+
+        // The device had a problem determining the base orientation from the acceleration and magnetic sensors,
+        // possible because of bad inputs or possibly because the device determined the orientation could not be
+        // calculated, e.g the device is in free-fall
+        Log.w(tag, "Base Device Orientation could not be computed!");
+
+        return null;
     }
 
     @Override
-    public float[] filter(float[] values) {
-        return new float[0];
-    }
+    public void startFusion() {}
+
+    @Override
+    public void stopFusion() {}
 }
